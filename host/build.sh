@@ -15,6 +15,16 @@ gcc -g \
     -DUBPF_HAS_ELF_H \
     -o host_runner -lm
 
+# Run API consistency test
+echo "Testing API consistency..."
+gcc -c -I components/ubpf_esp32/include -I host host/api_consistency_test.h -o /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "API consistency check passed"
+else
+    echo "API consistency check failed"
+    exit 1
+fi
+
 echo "Build complete. Run with:"
 echo "./host_runner examples/esp32_ubpf_demo/main/filters/init.o examples/esp32_ubpf_demo/main/filters/producer.o examples/esp32_ubpf_demo/main/filters/consumer.o"
 

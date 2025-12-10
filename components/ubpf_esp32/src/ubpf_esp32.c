@@ -7,11 +7,10 @@
 #include "nvs.h"
 #include "ubpf.h"
 #include "ubpf_esp32.h"
+#include "ubpf_esp32_config.h"
 
 static const char *TAG = "ubpf_esp32";
 static nvs_handle_t my_nvs_handle;
-
-#define MAX_BPF_PROGRAMS 8
 typedef struct {
     int id;
     const void *code;
@@ -42,9 +41,9 @@ static uint64_t helper_nvs_set(uint64_t key_ptr, uint64_t val, uint64_t r3, uint
     esp_err_t err = nvs_set_i32(my_nvs_handle, key, (int32_t)val);
     if (err == ESP_OK) {
         nvs_commit(my_nvs_handle);
-        return 0;
+        return UBPF_ESP32_OK;
     }
-    return -1;
+    return UBPF_ESP32_ERR_NVS_FULL;
 }
 
 static uint64_t helper_nvs_get(uint64_t key_ptr, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5) {

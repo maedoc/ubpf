@@ -5,42 +5,16 @@
 #include <time.h>
 #include "ubpf.h"
 #include "ubpf_esp32.h"
+#include "ubpf_esp32_config.h"
 #include "scheduler.h"
 
 // Mock NVS Storage (InMemory for simplicity, optionally saved to file)
-#define MAX_NVS_KEYS 16
 struct {
-    char key[32];
-    int value;
+    char key[NVS_KEY_MAX_LEN + 1];
+    int32_t value;
 } nvs_store[MAX_NVS_KEYS];
 
-static void nvs_load() {
-    FILE *f = fopen("nvs_mock.txt", "r");
-    if (!f) return;
-    char key[32];
-    int val;
-    int i = 0;
-    while(fscanf(f, "%31s %d", key, &val) == 2 && i < MAX_NVS_KEYS) {
-        strncpy(nvs_store[i].key, key, 31);
-        nvs_store[i].value = val;
-        i++;
-    }
-    fclose(f);
-}
-
-static void nvs_save() {
-    FILE *f = fopen("nvs_mock.txt", "w");
-    if (!f) return;
-    for(int i=0; i<MAX_NVS_KEYS; i++) {
-        if (nvs_store[i].key[0] != 0) {
-            fprintf(f, "%s %d\n", nvs_store[i].key, nvs_store[i].value);
-        }
-    }
-    fclose(f);
-}
-
 // Program Registry
-#define MAX_BPF_PROGRAMS 8
 typedef struct {
     int id;
     const void *code;
@@ -68,35 +42,35 @@ static uint64_t helper_delay_ms(uint64_t ms, uint64_t r2, uint64_t r3, uint64_t 
 
 static uint64_t helper_nvs_set(uint64_t key_ptr, uint64_t val, uint64_t r3, uint64_t r4, uint64_t r5) {
     const char *key = (const char *)(uintptr_t)key_ptr;
-    // printf("[BPF-SYS] NVS Set %s = %lu\n", key, val);
     
     for(int i=0; i<MAX_NVS_KEYS; i++) {
         if (strcmp(nvs_store[i].key, key) == 0) {
-            nvs_store[i].value = (int)val;
+            nvs_store[i].value = (int32_t)val;
             nvs_save();
-            return 0;
+            return UBPF_ESP32_OK;
         }
     }
     // New key
     for(int i=0; i<MAX_NVS_KEYS; i++) {
         if (nvs_store[i].key[0] == 0) {
-            strncpy(nvs_store[i].key, key, 31);
-            nvs_store[i].value = (int)val;
+            strncpy(nvs_store[i].key, key, NVS_KEY_MAX_LEN);
+            nvs_store[i].key[NVS_KEY_MAX_LEN] = '\0';
+            nvs_store[i].value = (int32_t)val;
             nvs_save();
-            return 0;
+            return UBPF_ESP32_OK;
         }
     }
-    return -1; // Full
+    return UBPF_ESP32_ERR_NVS_FULL;
 }
 
 static uint64_t helper_nvs_get(uint64_t key_ptr, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5) {
     const char *key = (const char *)(uintptr_t)key_ptr;
     for(int i=0; i<MAX_NVS_KEYS; i++) {
         if (strcmp(nvs_store[i].key, key) == 0) {
-            return nvs_store[i].value;
+            return (uint64_t)nvs_store[i].value;
         }
     }
-    return 0; // Default
+    return 0; // Default (not an error - returns 0 for missing keys)
 }
 
 static void bpf_task_wrapper(void *pvParameters) {
@@ -140,6 +114,7 @@ void ubpf_esp32_register_program(int id, const void *code, size_t code_len, cons
             return;
         }
     }
+    fprintf(stderr, "[ubpf_esp32] Max BPF programs reached\n");
 }
 
 static uint64_t relocation_handler(void *user_data, const uint8_t *data, uint64_t data_size, const char *symbol_name, uint64_t symbol_offset, uint64_t symbol_size) {
